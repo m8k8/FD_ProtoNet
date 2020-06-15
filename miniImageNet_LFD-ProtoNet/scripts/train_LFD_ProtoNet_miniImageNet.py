@@ -1,6 +1,5 @@
 import os
 import sys
-sys.path.append('../')
 import argparse
 
 import numpy as np
@@ -12,7 +11,7 @@ from chainer import cuda
 from chainer import serializers
 
 from utils.generators import miniImageNetGenerator
-from utils.model_TapNet_ResNet12 import TapNet
+from utils.model_LFD_ProtoNet_ResNet12 import LFD_ProtoNet
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -40,8 +39,8 @@ if __name__ == '__main__':
         os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"]="%d" %args.gpu
         xp = cp
-    dimension=512
-    max_iter=50001
+    dimension=128
+    max_iter=50000
     lrdecay = True
     lrstep = 40000
     n_shot=args.n_shot
@@ -50,19 +49,20 @@ if __name__ == '__main__':
     nb_class_train=args.nb_class_train
     nb_class_test=args.nb_class_test
     wd_rate=args.wd_rate
-    savefile_name='save/TapNet_miniImageNet_ResNet12.mat'
-    filename_5shot='save/TapNet_miniImageNet_ResNet12'
-    filename_5shot_last='save/TapNet_miniImageNet_ResNet12_last'
+    savefile_name='save/LFD_ProtoNet_miniImageNet_ResNet12.mat'
+    filename_5shot='save/LFD_ProtoNet_miniImageNet_ResNet12.zip'
+    filename_5shot_last='save/LFD_ProtoNet_miniImageNet_ResNet12_last.zip'
+
 
     # set up training
     # ------------------
-    model = TapNet(nb_class_train=nb_class_train, nb_class_test=nb_class_test, input_size=3*84*84, 
+    model = LFD_ProtoNet(nb_class_train=nb_class_train, nb_class_test=nb_class_test, input_size=3*84*84, 
                 dimension=dimension, n_shot=n_shot, gpu=args.gpu)
     
     optimizer = optimizers.Adam(alpha=1e-3, weight_decay_rate=wd_rate)
     model.set_optimizer(optimizer)
 
-    train_generator = miniImageNetGenerator(data_file='../data/Imagenet/train.npz', 
+    train_generator = miniImageNetGenerator(data_file='../data/train.npz',
                                         nb_classes=nb_class_train, nb_samples_per_class=n_shot+n_query, 
                                         max_iter=max_iter, xp=xp)
 
@@ -79,26 +79,34 @@ if __name__ == '__main__':
     # start training
     # ----------------
 
+    max_acc=0
+
     for t, (images, labels) in train_generator:
         # train
         loss = model.train(images, labels)
         # logging 
         loss_h.extend([loss.tolist()])
-        if (t % 50 == 0):
+
+        if ((t!=0) and (t % 50 == 0)):
             print("Episode: %d, Train Loss: %f "%(t, loss))
-    
-        if (t != 0) and (t % 500 == 0):                
+        
+        if (t != 0) and (t % 500 == 0):              
             print('Evaluation in Validation data')
-            test_generator = miniImageNetGenerator(data_file='../data/Imagenet/val.npz', 
+            test_generator = miniImageNetGenerator(data_file='../data/val.npz',
                                                nb_classes=nb_class_test, nb_samples_per_class=n_shot+n_query_test, 
                                                max_iter=600, xp=xp)
-            scores = []                                              
+            scores = []                           
             for i, (images, labels) in test_generator:
-                accs = model.evaluate(images, labels)                
+                accs= model.evaluate(images, labels)
                 accs_ = [cuda.to_cpu(acc) for acc in accs]
                 score = np.asarray(accs_, dtype=int)
                 scores.append(score)
             print(('Accuracy 5 shot ={:.2f}%').format(100*np.mean(np.array(scores))))
+            if(np.mean(np.array(scores))>max_acc):
+                serializers.save_npz(filename_5shot,model.chain)
+                max_acc=np.mean(np.array(scores))
+                print("save")
+
             accuracy_t=100*np.mean(np.array(scores))
             
             if acc_best < accuracy_t:
@@ -113,12 +121,12 @@ if __name__ == '__main__':
             del(accuracy_t)
             
             print('Evaluation in Test data')
-            test_generator = miniImageNetGenerator(data_file='../data/Imagenet/test.npz', 
+            test_generator = miniImageNetGenerator(data_file='../data/test.npz',
                                                nb_classes=nb_class_test, nb_samples_per_class=n_shot+n_query_test, 
                                                max_iter=600, xp=xp)
             scores = []                                              
             for i, (images, labels) in test_generator:
-                accs = model.evaluate(images, labels)                
+                accs= model.evaluate(images, labels)                
                 accs_ = [cuda.to_cpu(acc) for acc in accs]
                 score = np.asarray(accs_, dtype=int)
                 scores.append(score)
@@ -145,12 +153,12 @@ if __name__ == '__main__':
     serializers.load_npz(filename_5shot, model.chain)
     print('Evaluating the best 5shot model...') 
     for i in range(50):
-        test_generator = miniImageNetGenerator(data_file='../data/Imagenet/test.npz', 
+        test_generator = miniImageNetGenerator(data_file='../data/test.npz',
                                                nb_classes=nb_class_test, nb_samples_per_class=n_shot+n_query_test, 
                                                max_iter=600, xp=xp)
         scores=[]
         for j, (images, labels) in test_generator:
-            accs = model.evaluate(images, labels)                
+            accs= model.evaluate(images, labels)                
             accs_ = [cuda.to_cpu(acc) for acc in accs]
             score = np.asarray(accs_, dtype=int)
             scores.append(score)

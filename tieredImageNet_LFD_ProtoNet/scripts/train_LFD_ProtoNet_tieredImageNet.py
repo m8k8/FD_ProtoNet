@@ -12,7 +12,7 @@ from chainer import cuda
 from chainer import serializers
 
 from utils.generators import tieredImageNetGenerator
-from utils.model_TapNet_ResNet12 import TapNet
+from utils.model_LFD_ProtoNet_ResNet12 import LFD_ProtoNet
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -40,8 +40,8 @@ if __name__ == '__main__':
         os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"]="%d" %args.gpu
         xp = cp
-    dimension=512
-    max_iter=50001
+    dimension=128
+    max_iter=50000
     lrdecay = True
     lrstep = 40000
     n_shot=args.n_shot
@@ -50,13 +50,14 @@ if __name__ == '__main__':
     nb_class_train=args.nb_class_train
     nb_class_test=args.nb_class_test
     wd_rate=args.wd_rate
-    savefile_name='save/TapNet_tieredImageNet_ResNet12.mat'
-    filename_5shot='save/TapNet_tieredImageNet_ResNet12'
-    filename_5shot_last='save/TapNet_tieredImageNet_ResNet12_last'
+    savefile_name='save/LFD_ProtoNet_tieredImageNet_ResNet12.mat'
+    filename_5shot='save/LFD_ProtoNet_tieredImageNet_ResNet12'
+    filename_5shot_last='save/LFD_ProtoNet_tieredImageNet_ResNet12_last'
+    load_file_5_shot='save/LFD_ProtoNet_tieredImageNet_ResNet12_last_5_shot'
 
     # set up training
     # ------------------
-    model = TapNet(nb_class_train=nb_class_train, nb_class_test=nb_class_test, input_size=3*84*84, 
+    model = LFD_ProtoNet(nb_class_train=nb_class_train, nb_class_test=nb_class_test, input_size=3*84*84, 
                 dimension=dimension, n_shot=n_shot, gpu=args.gpu)
     
     optimizer = optimizers.Adam(alpha=1e-3, weight_decay_rate=wd_rate)
@@ -78,13 +79,12 @@ if __name__ == '__main__':
 
     # start training
     # ----------------
-
+    
     for t, (images, labels) in train_generator:
-        # train
         loss = model.train(images, labels)
         # logging 
         loss_h.extend([loss.tolist()])
-        if (t % 50 == 0):
+        if ((t != 0) and t % 50 == 0):
             print("Episode: %d, Train Loss: %f "%(t, loss))
     
         if (t != 0) and (t % 500 == 0):                
@@ -136,10 +136,11 @@ if __name__ == '__main__':
                 
             serializers.save_npz(filename_5shot_last,model.chain)
     
-        if (t != 0) and (t % lrstep == 0) and lrdecay:
+        if (t != 0) and (t == lrstep) and lrdecay:
             model.decay_learning_rate(0.1)
 
     
+    serializers.save_npz(filename_5shot_last,model.chain)
     accuracy_h5=[]
 
     serializers.load_npz(filename_5shot, model.chain)
@@ -163,5 +164,3 @@ if __name__ == '__main__':
         del(accuracy_t)   
         sio.savemat(savefile_name, {'accuracy_h_val':accuracy_h_val, 'accuracy_h_test':accuracy_h_test, 'epoch_best':epoch_best,'acc_best':acc_best, 'accuracy_h5':accuracy_h5})
     print(('Accuracy_test 5 shot ={:.2f}%').format(np.mean(accuracy_h5)))
-
-
